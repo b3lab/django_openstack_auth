@@ -577,6 +577,6 @@ def terms_and_conditions(request):
         response = django_http.HttpResponse(pdf.read(),
                                             content_type='application/pdf')
         response['Content-Disposition'] = 'inline;' + \
-            'filename=B3LABKullaniciSozlesmesi.pdf'
+            'filename=UserAggrement.pdf'
         return response
 
