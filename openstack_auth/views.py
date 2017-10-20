@@ -469,7 +469,7 @@ def confirm_mail(request, token):
     else:
         # enable user
         activation = 'OK'
-        conn = OpenstackConnector(settings.CLOUD_CONFIG_NAME)
+        conn = OpenstackUserManager(settings.CLOUD_CONFIG_NAME)
         if not conn.update_project_status(projectname, True):
             activation = 'openstack_error'
         if not conn.update_user_status(username, True):
@@ -485,7 +485,7 @@ def forgot_password(request, email):
 
     username = email
 
-    conn = OpenstackConnector(settings.CLOUD_CONFIG_NAME)
+    conn = OpenstackUserManager(settings.CLOUD_CONFIG_NAME)
     if conn.check_username_availability(username):
         LOG.warning("User not exist in OpenStack: Username: " + username)
         return shortcuts.render(
@@ -527,7 +527,7 @@ def resend_confirm_mail(request, email):
 def send_confirmation_mail(username, email):
 
     confirmation_token = generate_confirmation_token(username)
-    confirm_url = settings.DOMAIN_URL + "auth/confirm_mail/"
+    confirm_url = "http:\/\/" + settings.DOMAIN_URL + "auth/confirm_mail/"
     confirm_url = confirm_url + confirmation_token
 
     from_email = settings.EMAIL_HOST_USER
@@ -551,12 +551,13 @@ def send_confirmation_mail(username, email):
 
 
 def send_reset_password_mail(username, email, password):
-    to_list = [email, settings.EMAIL_HOST_USER]
+    to_list = [email, settings.EMAIL_HOST_USER]    
+    domain_url = "http:\/\/" + settings.DOMAIN_URL
 
     try:
         mail_data = {'name': '',
                      'new_password': password,
-                     'link': settings.LOGIN_URL}
+                     'link': domain_url}
         mail_builder = EmailBuilder('reset_password')
         subject, text, html = mail_builder.get_mail_content(mail_data)
         mail_notifier = EmailNotifier(settings.EMAIL_HOST,
@@ -576,6 +577,6 @@ def terms_and_conditions(request):
         response = django_http.HttpResponse(pdf.read(),
                                             content_type='application/pdf')
         response['Content-Disposition'] = 'inline;' + \
-            'filename=UserAggrement.pdf'
+            'filename=B3LABKullaniciSozlesmesi.pdf'
         return response
 
