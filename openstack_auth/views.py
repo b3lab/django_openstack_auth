@@ -27,7 +27,15 @@ from django.views.decorators.csrf import csrf_exempt  # noqa
 from django.views.decorators.csrf import csrf_protect  # noqa
 from django.views.decorators.debug import sensitive_post_parameters  # noqa
 from keystoneauth1 import exceptions as keystone_exceptions
+
+from openstack_user_manager.manager import OpenstackUserManager
+from safir_email_notifier.email_builder import EmailBuilder
+from safir_email_notifier.email_notifier import EmailNotifier
+
+from itsdangerous import URLSafeTimedSerializer
+import random
 import six
+import string
 
 from openstack_auth import exceptions
 from openstack_auth import forms
@@ -315,3 +323,259 @@ def switch_keystone_provider(request, keystone_provider=None,
 
     response = shortcuts.redirect(redirect_to)
     return response
+
+
+@sensitive_post_parameters()
+@csrf_exempt
+@never_cache
+def register(request):
+    form = forms.Register()
+
+    if request.method == 'POST':
+
+        registered = ''
+        form = forms.Register(request.POST)
+        if form.is_valid():
+
+            registered = 'OK'
+            univ = request.POST.get('university')
+            email = request.POST.get('email')
+            username = email
+            projectname = username
+            projectdescription = projectname + '\'s Project on OpenStack'
+            password = request.POST.get('password')
+            repassword = request.POST.get('retype_password')
+            researcharea = request.POST.get('research_area')
+
+            try:
+                client_address = request.META['HTTP_X_FORWARDED_FOR']
+            except Exception:
+                client_address = request.META['REMOTE_ADDR']
+
+            LOG.info("New user registeration request for " +
+                     email + " from " + client_address)
+
+            if not (projectname and univ and password and repassword):
+                registered = 'empty_fields'
+                return shortcuts.render(
+                    request, 'auth/register.html',
+                    {'registered': registered, 'form': form})
+
+            if not (password == repassword):
+                registered = 'passwords_not_match'
+                return shortcuts.render(
+                    request, 'auth/register.html',
+                    {'registered': registered, 'form': form})
+
+            if not (len(password) >= 6):
+                registered = 'passwords_too_weak'
+                return shortcuts.render(
+                    request, 'auth/register.html',
+                    {'registered': registered, 'form': form})
+
+            mailerror = True
+            for univ_mail in univ.split(','):
+                if univ_mail in email:
+                    mailerror = False
+            if mailerror:
+                registered = 'univ_mail_not_used'
+                return shortcuts.render(
+                    request, 'auth/register.html',
+                    {'registered': registered, 'form': form})
+
+            conn = OpenstackUserManager(settings.CLOUD_CONFIG_NAME)
+            if not conn.check_username_availability(username):
+                registered = 'user_in_use'
+                return shortcuts.render(
+                    request, 'auth/register.html',
+                    {'registered': registered, 'form': form})
+
+            project_properties = {'Client address': client_address,
+                                  'University': univ,
+                                  'Research Area': researcharea}
+            if not conn.create_project(projectdescription, projectname,
+                                      project_properties):
+                registered = 'openstack_error'
+                return shortcuts.render(
+                    request, 'auth/register.html',
+                    {'registered': registered, 'form': form})
+
+            if not conn.create_user(email, username, password):
+                registered = 'openstack_error'
+                return shortcuts.render(
+                    request, 'auth/register.html',
+                    {'registered': registered, 'form': form})
+
+            default_role_name = settings.OPENSTACK_KEYSTONE_DEFAULT_ROLE
+            if default_role_name is None:
+                registered = 'openstack_error'
+                return shortcuts.render(
+                    request, 'auth/register.html',
+                    {'registered': registered, 'form': form})
+
+            if not conn.pair_user_with_project(username, projectname,
+                                               default_role_name):
+                registered = 'openstack_error'
+                return shortcuts.render(
+                    request, 'auth/register.html',
+                    {'registered': registered, 'form': form})
+
+            if not conn.init_network(projectname,
+                                     settings.OPENSTACK_EXT_NET,
+                                     settings.OPENSTACK_DNS_NAMESERVERS,
+                                     settings.OPENSTACK_DEFAULT_SUBNET_CIDR,
+                                     settings.OPENSTACK_DEFAULT_GATEWAY_IP):
+                LOG.warning('Network could not be initialized for project ' +
+                            projectname + '.')
+
+            if not conn.add_ssh_rule(projectname):
+                LOG.warning('SSH security rule could not be added ' +
+                            projectname + '.')
+
+            send_confirmation_mail(username, email)
+    else:
+        registered = ''
+    return shortcuts.render(
+        request, 'auth/register.html',
+        {'registered': registered, 'form': form})
+
+
+def generate_confirmation_token(secret):
+    serializer = URLSafeTimedSerializer(settings.TOKEN_SECRET_KEY)
+    return serializer.dumps(secret,
+                            salt=settings.TOKEN_SECURITY_PASSWORD_SALT)
+
+
+def confirm_token(token, expiration=3600):
+    serializer = URLSafeTimedSerializer(settings.TOKEN_SECRET_KEY)
+    try:
+        secret = serializer.loads(
+            token,
+            salt=settings.TOKEN_SECURITY_PASSWORD_SALT,
+            max_age=expiration
+        )
+    except Exception:
+        return False
+    return secret
+
+
+def confirm_mail(request, token):
+    username = confirm_token(token)
+    projectname = username
+    if username is False:
+        return shortcuts.render(
+            request, 'auth/activation.html',
+            {'page_title': 'Activation', 'activation': 'FAIL'})
+    else:
+        # enable user
+        activation = 'OK'
+        conn = OpenstackConnector(settings.CLOUD_CONFIG_NAME)
+        if not conn.update_project_status(projectname, True):
+            activation = 'openstack_error'
+        if not conn.update_user_status(username, True):
+            activation = 'openstack_error'
+
+        # TODO(ecelik): send_success_mail(username, email)
+        return shortcuts.render(
+            request, 'auth/activation.html',
+            {'page_title': 'Activation', 'activation': activation})
+
+
+def forgot_password(request, email):
+
+    username = email
+
+    conn = OpenstackConnector(settings.CLOUD_CONFIG_NAME)
+    if conn.check_username_availability(username):
+        LOG.warning("User not exist in OpenStack: Username: " + username)
+        return shortcuts.render(
+            request, 'auth/activation.html',
+            {'page_title': 'Forgot Password', 'activation': 'FAIL'})
+
+    LOG.info("Resetting password of " + email)
+
+    s = string.lowercase + string.digits
+    randpassword = ''.join(random.sample(s, 10))
+
+    if not conn.update_user_password(username, randpassword):
+        return shortcuts.render(
+            request, 'auth/activation.html',
+            {'page_title': 'Forgot Password', 'activation': 'FAIL'})
+
+    send_reset_password_mail(username, email, randpassword)
+
+    return django_http.HttpResponseRedirect(settings.LOGIN_URL)
+
+
+def resend_confirm_mail(request, email):
+
+    username = email
+
+    conn = OpenstackUserManager(settings.CLOUD_CONFIG_NAME)
+    if conn.check_username_availability(username):
+        LOG.warning("User not exist in OpenStack: Username: " + username)
+        return shortcuts.render(
+            request, 'auth/activation.html',
+            {'page_title': 'Activation', 'activation': 'FAIL'})
+
+    LOG.info("Sending confirmation e-mail to " + email)
+
+    send_confirmation_mail(username, email)
+    return django_http.HttpResponseRedirect(settings.LOGIN_URL)
+
+
+def send_confirmation_mail(username, email):
+
+    confirmation_token = generate_confirmation_token(username)
+    confirm_url = settings.DOMAIN_URL + "auth/confirm_mail/"
+    confirm_url = confirm_url + confirmation_token
+
+    from_email = settings.EMAIL_HOST_USER
+    to_list = [email, from_email]
+
+    try:
+        mail_data = {'name': '',
+                     'link': confirm_url}
+        mail_builder = EmailBuilder('user_activation')
+        subject, text, html = mail_builder.get_mail_content(mail_data)
+        mail_notifier = EmailNotifier(settings.EMAIL_HOST,
+                                      settings.EMAIL_PORT,
+                                      settings.EMAIL_HOST_USER,
+                                      settings.EMAIL_HOST_PASSWORD)
+        mail_notifier.send_mail(to_list, subject, text, html)
+
+        LOG.info("Confirmation email sent successfully.")
+    except Exception as ex:
+        LOG.error("Confirmation email not sent. " + ex.message)
+    return
+
+
+def send_reset_password_mail(username, email, password):
+    to_list = [email, settings.EMAIL_HOST_USER]
+
+    try:
+        mail_data = {'name': '',
+                     'new_password': password,
+                     'link': settings.LOGIN_URL}
+        mail_builder = EmailBuilder('reset_password')
+        subject, text, html = mail_builder.get_mail_content(mail_data)
+        mail_notifier = EmailNotifier(settings.EMAIL_HOST,
+                                      settings.EMAIL_PORT,
+                                      settings.EMAIL_HOST_USER,
+                                      settings.EMAIL_HOST_PASSWORD)
+        mail_notifier.send_mail(to_list, subject, text, html)
+
+        LOG.info("Reset password email sent successfully.")
+    except Exception as ex:
+        LOG.error("Reset password email not sent. " + ex.message)
+    return
+
+
+def terms_and_conditions(request):
+    with open(settings.USER_AGGREMENT_FILE, 'r') as pdf:
+        response = django_http.HttpResponse(pdf.read(),
+                                            content_type='application/pdf')
+        response['Content-Disposition'] = 'inline;' + \
+            'filename=UserAggrement.pdf'
+        return response
+
