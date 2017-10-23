@@ -173,3 +173,12 @@ class Register(forms.Form):
     def clean(self):
         return self.cleaned_data
 
+
+class ForgotPassword(forms.Form):
+
+    email = forms.EmailField(label=_("Account E-mail"),
+                             required=True)
+
+    @sensitive_variables()
+    def clean(self):
+        return self.cleaned_data

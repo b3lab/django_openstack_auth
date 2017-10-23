@@ -465,7 +465,7 @@ def confirm_mail(request, token):
     if username is False:
         return shortcuts.render(
             request, 'auth/activation.html',
-            {'page_title': 'Activation', 'activation': 'FAIL'})
+            {'activation': 'FAIL'})
     else:
         # enable user
         activation = 'OK'
@@ -478,33 +478,39 @@ def confirm_mail(request, token):
         # TODO(ecelik): send_success_mail(username, email)
         return shortcuts.render(
             request, 'auth/activation.html',
-            {'page_title': 'Activation', 'activation': activation})
+            {'activation': activation})
 
 
-def forgot_password(request, email):
+def forgot_password(request):
+    form = forms.ForgotPassword()
+    password_reset = ''
 
-    username = email
+    if request.method == 'POST':
+        form = forms.ForgotPassword(request.POST)
+        if form.is_valid():
+            email = request.POST.get('email')
 
-    conn = OpenstackUserManager(settings.CLOUD_CONFIG_NAME)
-    if conn.check_username_availability(username):
-        LOG.warning("User not exist in OpenStack: Username: " + username)
-        return shortcuts.render(
-            request, 'auth/activation.html',
-            {'page_title': 'Forgot Password', 'activation': 'FAIL'})
+            conn = OpenstackUserManager(settings.CLOUD_CONFIG_NAME)
+            if conn.check_username_availability(email):
+                return shortcuts.render(
+                        request, 'auth/forgot_password.html',
+                        {'password_reset': 'user_not_found',
+                         'form': form})
 
-    LOG.info("Resetting password of " + email)
+            s = string.lowercase + string.digits
+            randpassword = ''.join(random.sample(s, 10))
 
-    s = string.lowercase + string.digits
-    randpassword = ''.join(random.sample(s, 10))
+            if not conn.update_user_password(email, randpassword):
+                return shortcuts.render(
+                    request, 'auth/forgot_password.html',
+                    {'password_reset': 'FAIL', 'form': form})
 
-    if not conn.update_user_password(username, randpassword):
-        return shortcuts.render(
-            request, 'auth/activation.html',
-            {'page_title': 'Forgot Password', 'activation': 'FAIL'})
+            send_reset_password_mail(email, randpassword)
+            password_reset = 'OK'
 
-    send_reset_password_mail(username, email, randpassword)
-
-    return django_http.HttpResponseRedirect(settings.LOGIN_URL)
+    return shortcuts.render(
+            request, 'auth/forgot_password.html',
+            {'password_reset': password_reset, 'form': form})
 
 
 def resend_confirm_mail(request, email):
@@ -516,7 +522,7 @@ def resend_confirm_mail(request, email):
         LOG.warning("User not exist in OpenStack: Username: " + username)
         return shortcuts.render(
             request, 'auth/activation.html',
-            {'page_title': 'Activation', 'activation': 'FAIL'})
+            {'activation': 'FAIL'})
 
     LOG.info("Sending confirmation e-mail to " + email)
 
@@ -550,14 +556,16 @@ def send_confirmation_mail(username, email):
     return
 
 
-def send_reset_password_mail(username, email, password):
-    to_list = [email, settings.EMAIL_HOST_USER]    
-    domain_url = "http:\/\/" + settings.DOMAIN_URL
+def send_reset_password_mail(email, password):
+    url = "http:\/\/" + settings.DOMAIN_URL
+
+    from_email = settings.EMAIL_HOST_USER
+    to_list = [email, from_email]
 
     try:
         mail_data = {'name': '',
                      'new_password': password,
-                     'link': domain_url}
+                     'link': url}
         mail_builder = EmailBuilder('reset_password')
         subject, text, html = mail_builder.get_mail_content(mail_data)
         mail_notifier = EmailNotifier(settings.EMAIL_HOST,
@@ -569,7 +577,6 @@ def send_reset_password_mail(username, email, password):
         LOG.info("Reset password email sent successfully.")
     except Exception as ex:
         LOG.error("Reset password email not sent. " + ex.message)
-    return
 
 
 def terms_and_conditions(request):
@@ -579,4 +586,3 @@ def terms_and_conditions(request):
         response['Content-Disposition'] = 'inline;' + \
             'filename=UserAggrement.pdf'
         return response
-

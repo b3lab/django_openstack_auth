@@ -31,7 +31,7 @@ urlpatterns = [
         views.switch_keystone_provider,
         name='switch_keystone_provider'),
     url(r"^register/$", views.register, name='register'),
-    url(r"^forgot_password/(?P<email>[^/]+)/$", views.forgot_password,
+    url(r"^forgot_password/$", views.forgot_password,
         name='forgot_password'),
     url(r"^resend_confirm_mail/(?P<email>[^/]+)/$", views.resend_confirm_mail,
         name='resend_confirm_mail'),
