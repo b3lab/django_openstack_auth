@@ -146,6 +146,8 @@ class Login(django_auth_forms.AuthenticationForm):
 
 class Register(forms.Form):
 
+    name = forms.CharField(label=_("Name"),
+                           required=True)
     # We only accept registrations from universities from Turkey
     # Later on this can be changed by the Organization name
     university = forms.ChoiceField(choices=univs.UNIV_CHOICES,
@@ -163,6 +165,7 @@ class Register(forms.Form):
                                           render_value=False))
     research_area = forms.CharField(label=_("Research Area"),
                                     widget=forms.Textarea,
+                                    min_length=60,
                                     max_length=360,
                                     required=True)
     sign_contract = forms.BooleanField(

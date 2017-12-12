@@ -36,6 +36,7 @@ from itsdangerous import URLSafeTimedSerializer
 import random
 import six
 import string
+import unicodedata
 
 from openstack_auth import exceptions
 from openstack_auth import forms
@@ -46,6 +47,7 @@ from openstack_auth import plugin
 # Juno
 from openstack_auth.forms import Login  # noqa
 from openstack_auth import user as auth_user
+from openstack_auth import univs
 from openstack_auth import utils
 
 try:
@@ -339,13 +341,21 @@ def register(request):
 
             registered = 'OK'
             univ = request.POST.get('university')
+            name = request.POST.get('name')
+            name = unicodedata.normalize('NFKD',
+                name).encode('ascii','ignore')
             email = request.POST.get('email')
             username = email
-            projectname = username
-            projectdescription = projectname + '\'s Project on OpenStack'
+            projectname = email
+            projectdescription = name
             password = request.POST.get('password')
             repassword = request.POST.get('retype_password')
             researcharea = request.POST.get('research_area')
+            researcharea = unicodedata.normalize('NFKD',
+                 researcharea).encode('ascii','ignore')
+
+            UNIVS_D = {v: k for k, v in univs.UNIV_CHOICES}
+            univ_name = UNIVS_D[univ]
 
             try:
                 client_address = request.META['HTTP_X_FORWARDED_FOR']
@@ -390,9 +400,9 @@ def register(request):
                     request, 'auth/register.html',
                     {'registered': registered, 'form': form})
 
-            project_properties = {'Client address': client_address,
-                                  'University': univ,
-                                  'Research Area': researcharea}
+            project_properties = {'university': univ_name,
+                                  'research_area': researcharea,
+                                  'email': email}
             if not conn.create_project(projectdescription, projectname,
                                       project_properties):
                 registered = 'openstack_error'
@@ -405,6 +415,12 @@ def register(request):
                 return shortcuts.render(
                     request, 'auth/register.html',
                     {'registered': registered, 'form': form})
+
+            if not conn.init_billing_customer(projectname,
+                                              projectdescription,
+                                              univ_name,
+                                              email):
+                LOG.error('Billing customer could not be added!')
 
             default_role_name = settings.OPENSTACK_KEYSTONE_DEFAULT_ROLE
             if default_role_name is None:
@@ -432,7 +448,7 @@ def register(request):
                 LOG.warning('SSH security rule could not be added ' +
                             projectname + '.')
 
-            send_confirmation_mail(username, email)
+            send_confirmation_mail(email)
     else:
         registered = ''
     return shortcuts.render(
@@ -460,25 +476,28 @@ def confirm_token(token, expiration=3600):
 
 
 def confirm_mail(request, token):
-    username = confirm_token(token)
-    projectname = username
-    if username is False:
+    email = confirm_token(token)
+
+    if email is False:
         return shortcuts.render(
             request, 'auth/activation.html',
             {'activation': 'FAIL'})
-    else:
-        # enable user
-        activation = 'OK'
-        conn = OpenstackUserManager(settings.CLOUD_CONFIG_NAME)
-        if not conn.update_project_status(projectname, True):
-            activation = 'openstack_error'
-        if not conn.update_user_status(username, True):
-            activation = 'openstack_error'
 
-        # TODO(ecelik): send_success_mail(username, email)
-        return shortcuts.render(
-            request, 'auth/activation.html',
-            {'activation': activation})
+    conn = OpenstackUserManager(settings.CLOUD_CONFIG_NAME)
+    projectname = email
+    username = email
+
+    # enable user
+    activation = 'OK'
+    if not conn.update_project_status(projectname, True):
+        activation = 'openstack_error'
+    if not conn.update_user_status(username, True):
+        activation = 'openstack_error'
+
+    # TODO(ecelik): send_success_mail(username, email)
+    return shortcuts.render(
+        request, 'auth/activation.html',
+        {'activation': activation})
 
 
 def forgot_password(request):
@@ -526,13 +545,13 @@ def resend_confirm_mail(request, email):
 
     LOG.info("Sending confirmation e-mail to " + email)
 
-    send_confirmation_mail(username, email)
+    send_confirmation_mail(email)
     return django_http.HttpResponseRedirect(settings.LOGIN_URL)
 
 
-def send_confirmation_mail(username, email):
+def send_confirmation_mail(email):
 
-    confirmation_token = generate_confirmation_token(username)
+    confirmation_token = generate_confirmation_token(email)
     confirm_url = "http:\/\/" + settings.DOMAIN_URL + "auth/confirm_mail/"
     confirm_url = confirm_url + confirmation_token
 
