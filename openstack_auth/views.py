@@ -364,7 +364,7 @@ def register(request):
             researcharea = unicodedata.normalize('NFKD',
                  researcharea).encode('ascii','ignore')
 
-            UNIVS_D = {v: k for k, v in univs.UNIV_CHOICES}
+            UNIVS_D = {k: v for k, v in univs.UNIV_CHOICES}
             univ_name = UNIVS_D[univ]
 
             try:
