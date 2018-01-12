@@ -177,7 +177,7 @@ class Register(forms.Form):
     research_area = forms.CharField(label=_("Research Area"),
                                     widget=forms.Textarea,
                                     min_length=60,
-                                    max_length=360,
+                                    max_length=1000,
                                     required=True)
     sign_contract = forms.BooleanField(
         label=_("I have read and agree with the user agreement"),
