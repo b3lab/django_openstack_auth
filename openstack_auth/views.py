@@ -609,9 +609,9 @@ def send_reset_password_mail(email, password):
 
 
 def terms_and_conditions(request):
-    with open(settings.USER_AGGREMENT_FILE, 'r') as pdf:
+    with open(settings.USER_AGREEMENT_FILE, 'r') as pdf:
         response = django_http.HttpResponse(pdf.read(),
                                             content_type='application/pdf')
         response['Content-Disposition'] = 'inline;' + \
-            'filename=UserAggrement.pdf'
+            'filename=UserAgreement.pdf'
         return response
