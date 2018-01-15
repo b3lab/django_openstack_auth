@@ -12,3 +12,4 @@ ChangeLog
 .coverage
 reports
 coverage.xml
+.idea/
