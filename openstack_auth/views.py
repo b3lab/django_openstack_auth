@@ -140,6 +140,24 @@ def login(request, template_name=None, extra_context=None, **kwargs):
                      ' in %s minutes') %
                    expiration_time).replace(':', ' Hours and ')
             messages.warning(request, msg)
+    else:
+        if request.method == 'POST':
+            username = request.POST.get('username')
+            conn = OpenstackUserManager(settings.CLOUD_CONFIG_NAME)
+            project_id = conn.get_project_from_user(
+                role_name=settings.OPENSTACK_KEYSTONE_DEFAULT_ROLE,
+                user_name=username)
+            if project_id:
+                customer_status =  conn.get_billing_customer_status(project_id)
+                if customer_status == 'SUSPENDED':
+                    termination_date = conn.get_customer_termination_date(project_id)
+                    return shortcuts.render(
+                        request, 'auth/suspended.html',
+                        {'termination_date': termination_date})
+                elif customer_status == 'TERMINATED':
+                    return shortcuts.render(
+                        request, 'auth/terminated.html')
+
     return res
 
 
@@ -497,17 +515,30 @@ def confirm_mail(request, token):
     projectname = email
     username = email
 
-    # enable user
-    activation = 'OK'
-    if not conn.update_project_status(projectname, True):
-        activation = 'openstack_error'
-    if not conn.update_user_status(username, True):
-        activation = 'openstack_error'
+    if check_old_customer(projectname):
+        # enable user
+        activation = 'OK'
+        if not conn.update_project_status(projectname, True):
+            activation = 'openstack_error'
+        if not conn.update_user_status(username, True):
+            activation = 'openstack_error',
+    else:
+        activation = 'failed'
 
     # TODO(ecelik): send_success_mail(username, email)
     return shortcuts.render(
         request, 'auth/activation.html',
         {'activation': activation})
+
+
+def check_old_customer(project_name):
+    project = conn.get_project(project_name)
+    if project:
+        customer_status = conn.get_billing_customer_status(project.id)
+        if customer_status == 'SUSPENDED' or \
+           customer_status == 'TERMINATED':
+            return False
+    return True
 
 
 def forgot_password(request):
@@ -606,6 +637,15 @@ def send_reset_password_mail(email, password):
         LOG.info("Reset password email sent successfully.")
     except Exception as ex:
         LOG.error("Reset password email not sent. " + ex.message)
+
+
+def report_template(request):
+    with open(settings.RESEARCH_REPORT_TEMPLATE, 'r') as pdf:
+        response = django_http.HttpResponse(pdf.read(),
+                                            content_type='application/pdf')
+        response['Content-Disposition'] = 'inline;' + \
+            'filename=ReportTemplate.pdf'
+        return response
 
 
 def terms_and_conditions(request):

@@ -39,6 +39,8 @@ urlpatterns = [
         name='confirm_mail'),
     url(r"^terms_and_conditions/$", views.terms_and_conditions,
         name='terms_and_conditions'),
+    url(r"^report_template/$", views.report_template,
+        name='report_template'),
 ]
 
 if utils.is_websso_enabled():
