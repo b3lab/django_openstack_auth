@@ -515,7 +515,7 @@ def confirm_mail(request, token):
     projectname = email
     username = email
 
-    if check_old_customer(projectname):
+    if check_old_customer(conn, projectname):
         # enable user
         activation = 'OK'
         if not conn.update_project_status(projectname, True):
@@ -531,13 +531,16 @@ def confirm_mail(request, token):
         {'activation': activation})
 
 
-def check_old_customer(project_name):
+def check_old_customer(conn, project_name):
     project = conn.get_project(project_name)
     if project:
-        customer_status = conn.get_billing_customer_status(project.id)
-        if customer_status == 'SUSPENDED' or \
-           customer_status == 'TERMINATED':
-            return False
+        try:
+            customer_status = conn.get_billing_customer_status(project.id)
+            if customer_status == 'SUSPENDED' or \
+               customer_status == 'TERMINATED':
+                return False
+        except:
+            pass
     return True
 
 
