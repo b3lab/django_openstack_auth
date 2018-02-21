@@ -149,12 +149,16 @@ def login(request, template_name=None, extra_context=None, **kwargs):
                 user_name=username)
             if project_id:
                 customer_status =  conn.get_billing_customer_status(project_id)
-                if customer_status == 'SUSPENDED':
+                if customer_status in ('SUSPENTION_STARTED',
+                                       'SUSPENDED',
+                                       'SUSPENTION_FAILED'):
                     termination_date = conn.get_customer_termination_date(project_id)
                     return shortcuts.render(
                         request, 'auth/suspended.html',
                         {'termination_date': termination_date})
-                elif customer_status == 'TERMINATED':
+                elif customer_status in ('TERMINATION_STARTED',
+                                         'TERMINATED',
+                                         'TERMINATION_FAILED'):
                     return shortcuts.render(
                         request, 'auth/terminated.html')
 
