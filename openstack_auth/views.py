@@ -149,9 +149,9 @@ def login(request, template_name=None, extra_context=None, **kwargs):
                 user_name=username)
             if project_id:
                 customer_status =  conn.get_billing_customer_status(project_id)
-                if customer_status in ('SUSPENTION_STARTED',
+                if customer_status in ('SUSPENSION_STARTED',
                                        'SUSPENDED',
-                                       'SUSPENTION_FAILED'):
+                                       'SUSPENSION_FAILED'):
                     termination_date = conn.get_customer_termination_date(project_id)
                     return shortcuts.render(
                         request, 'auth/suspended.html',
@@ -480,7 +480,7 @@ def register(request):
                 LOG.warning('SSH security rule could not be added ' +
                             projectname + '.')
 
-            send_confirmation_mail(email)
+            send_confirmation_mail(email, name)
     else:
         registered = ''
     return shortcuts.render(
@@ -597,7 +597,7 @@ def resend_confirm_mail(request, email):
     return django_http.HttpResponseRedirect(settings.LOGIN_URL)
 
 
-def send_confirmation_mail(email):
+def send_confirmation_mail(email, contact_name=None):
 
     confirmation_token = generate_confirmation_token(email)
     confirm_url = "http:\/\/" + settings.DOMAIN_URL + "auth/confirm_mail/"
@@ -606,8 +606,11 @@ def send_confirmation_mail(email):
     from_email = settings.EMAIL_HOST_USER
     to_list = [email, from_email]
 
+    if contact_name is None:
+        contact_name = email
+
     try:
-        mail_data = {'name': '',
+        mail_data = {'name': contact_name,
                      'link': confirm_url}
         mail_builder = EmailBuilder('user_activation')
         subject, text, html = mail_builder.get_mail_content(mail_data)
@@ -630,7 +633,7 @@ def send_reset_password_mail(email, password):
     to_list = [email, from_email]
 
     try:
-        mail_data = {'name': '',
+        mail_data = {'name': email,
                      'new_password': password,
                      'link': url}
         mail_builder = EmailBuilder('reset_password')
@@ -646,12 +649,18 @@ def send_reset_password_mail(email, password):
         LOG.error("Reset password email not sent. " + ex.message)
 
 
+def credit_load(request):
+    return shortcuts.render(
+        request, 'auth/creditload.html')
+
+
 def report_template(request):
-    with open(settings.RESEARCH_REPORT_TEMPLATE, 'r') as pdf:
-        response = django_http.HttpResponse(pdf.read(),
-                                            content_type='application/pdf')
+    with open(settings.RESEARCH_REPORT_TEMPLATE, 'r') as doc:
+        response = django_http.HttpResponse(doc.read(),
+            content_type='application/vnd.openxmlformats-officedocument.\
+            wordprocessingml.document')
         response['Content-Disposition'] = 'inline;' + \
-            'filename=ReportTemplate.pdf'
+            'filename=SafirBulutUsageReport.doc'
         return response
 
 

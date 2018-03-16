@@ -41,6 +41,8 @@ urlpatterns = [
         name='terms_and_conditions'),
     url(r"^report_template/$", views.report_template,
         name='report_template'),
+    url(r"^credit_load/$", views.credit_load,
+        name='credit_load'),
 ]
 
 if utils.is_websso_enabled():
